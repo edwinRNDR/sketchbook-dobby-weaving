@@ -66,7 +66,7 @@ val orxFeatures = setOf<String>(
 //  "orx-syphon",
 //  "orx-temporal-blur",
 //  "orx-tensorflow",
-//  "orx-text-writer",
+  "orx-text-writer",
 //  "orx-time-operators",
 //  "orx-timer",
 //  "orx-triangulation",
