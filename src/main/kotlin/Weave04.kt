@@ -70,7 +70,7 @@ fun main() {
 
 
             val typeSettings = object {
-                @DoubleParameter("letter waviness", 0.0, 20.0)
+                @DoubleParameter("letter waviness", -20.0, 20.0)
                 var letterWaviness = 7.0
 
                 @DoubleParameter("letter accent", 0.0, 2.0)
@@ -608,7 +608,7 @@ fun main() {
                             val k = sin(seconds * (1.0 / 16.0) * PI * 2.0) * 60.0 + 60.0
                             val sd = 1.0// smoothstep(k + 0.0, -60 + k, d)
                             val c = s[x, y].r
-                            waviness += c * typeSettings.letterWaviness * 0.5
+                            waviness += c * typeSettings.letterWaviness * typeSettings.letterAccent
 
                             var o = if (over) 1 else 0
 
