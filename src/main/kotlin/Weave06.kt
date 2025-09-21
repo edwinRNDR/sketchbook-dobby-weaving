@@ -50,8 +50,10 @@ import org.openrndr.launch
 import org.openrndr.math.Vector3
 import org.openrndr.shape.LineSegment3D
 import org.openrndr.shape.Rectangle
+import java.io.File
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
@@ -79,8 +81,8 @@ fun main() {
         }
         program {
 
-            var warps = 250
-            var wefts = 220
+            var warps = 80
+            var wefts = 80
             var width = 8
             var vizMode = 0
 
@@ -119,9 +121,14 @@ fun main() {
             val s = image.shadow
             val typeSettings = object {
 
+                @DoubleParameter("textWidth", 0.0, 2500.0)
+                var textWidth = 2500.0
+
                 @DoubleParameter("linearity", 0.0, 4.0)
                 var linearity: Double = 1.0
 
+                @DoubleParameter("horizontal position", -1.0, 1.0)
+                var horizontalPosition = 0.0
 
                 @ActionParameter("load image")
                 fun loadImage() {
@@ -141,6 +148,7 @@ fun main() {
                                     timage,
                                     drawer.bounds,
                                     fitMethod = FitMethod.Cover,
+                                    horizontalPosition = horizontalPosition,
                                     //verticalPosition = -0.75
                                 )
                             }
@@ -234,15 +242,15 @@ fun main() {
                 }
 
                 fun weftStrokeWeight(x: Int): Double {
-                    return 0.75 + 0.25 * when (vizMode) {
+                    return (0.75 + 0.25 * when (vizMode) {
                         0 -> cos(x * 2 * PI / wefts) * 0.5 + 0.5
                         1 -> 1.0 - (cos(x * 2 * PI / wefts) * 0.5 + 0.5)
                         2 -> x.toDouble() / wefts.toDouble()
                         3 -> cos(x * 8 * PI / wefts) * 0.5 + 0.5
                         4 -> (abs(wefts / 2.0 - x) / (wefts / 2.0)) * 1.0
                         5 -> (1.0 - (abs(wefts / 2.0 - x) / (wefts / 2.0))) * 1.0
-                        else -> 6.0
-                    }
+                        else -> 1.0
+                    })
                 }
 
                 fun warpStrokeWeight(x: Int): Double {
@@ -253,12 +261,13 @@ fun main() {
                         3 -> sin(x * 8 * PI / warps) * 0.5 + 0.5
                         4 -> (abs(warps / 2.0 - x) / (warps / 2.0)) * 1.0
                         5 -> (1.0 - (abs(warps / 2.0 - x) / (warps / 2.0))) * 1.0
-                        else -> 6.0
+                        else -> 1.0
                     }
                 }
 
                 drawer.isolated {
 
+                    drawer.ortho(0.0, drawer.width.toDouble(), drawer.height.toDouble(), 0.0, -10.0, 10.0)
                     drawer.drawStyle.depthWrite = true
                     drawer.drawStyle.depthTestPass = DepthTestPass.LESS_OR_EQUAL
                     drawer.stroke = weaveSettings.warpColor
@@ -278,12 +287,14 @@ fun main() {
                                 
                                 
                                 float t = hueMatch * satMatch * cmpHsv.z;
+                                
                                 t = (t * p_contrast) + (1.0 - p_contrast);
+                                t *= smoothstep(-1.0, 1.0, va_position.z) * 0.8 + 0.2;
                                 //float t = (texture(p_image, vec2(p_line, 1.0 - va_texCoord0.y)).b)*0.25 + 0.25;  
                                 float c = abs(va_texCoord0.x - 0.5);
                                 //x_stroke.a = smoothstep(-0.001, 0.001, t - c);
                                 x_stroke.a = step(0.0, t-c);
-                                if (x_stroke.a < 0.0001) discard;
+                                if (x_stroke.a <= 0.001) discard;
                                 //x_stroke.rgb = vec3(va_texCoord0.y); ////texture(p_image, vec2(p_line, va_texCoord0.y)).rgb;
                             """.trimIndent()
                             parameter("image", image)
@@ -336,13 +347,13 @@ fun main() {
                                 
                                 float t = (1.0 - pow(hueMatch * satMatch, 1.0)) * cmpHsv.z;
                              t = (t * p_contrast) + (1.0 - p_contrast);
-   
+                                t *= smoothstep(-2.0, 1.0, va_position.z) * 0.8 + 0.2;
                                 
                                // float t = (texture(p_image, vec2(va_texCoord0.y, p_line)).r)*0.25 + 0.25;  
                                 float c = abs(va_texCoord0.x - 0.5);
                                 //x_stroke.a = smoothstep(-0.01, 0.01, t - c);
                                 x_stroke.a = step(0.0, t-c);
-                                if (x_stroke.a < 0.0001) discard;
+                                if (x_stroke.a <= 0.001) discard;
                             """.trimIndent()
                             parameter("image", image)
                             parameter("line", 0.0)
@@ -354,7 +365,7 @@ fun main() {
                             drawer.strokeWeight = weaveSettings.weight * weftStrokeWeight(y)
                             //drawer.strokeWeight = 4.0 //cos(seconds * 0.25 * PI + y * 0.1) * 2.0 + 3.0
 
-                            val path = (0 until warps).map { x ->
+                            val path = (0 until warps).flatMap { x ->
                                 var waviness = weaveSettings.weftWaviness
                                 val di = drafting[x]
                                 val ti = threadling[y]
@@ -362,7 +373,13 @@ fun main() {
                                 val c = s[x, y].r.pow(typeSettings.linearity)
                                 //waviness += c * typeSettings.letterWaviness
                                 val o = if (over) if ((x + y).mod(2) == 0) -1 else 1 else 0
-                                Vector3(x * 10.0, y * 10.0 - o * waviness, o * 1.0 - 0.4)
+                                val zo = if (over) 1.0 else -1.0
+
+                                listOf(
+//                                    Vector3(x * 10.0-4.9, y * 10.0 - o * waviness, o * 5.0),
+                                    Vector3(x * 10.0, y * 10.0 - o * waviness, zo * 1.0),
+//                                    Vector3(x * 10.0+4.9, y * 10.0 - o * waviness, o * 5.0),
+                                    )
                             }.catmullRom(0.2, false).toPath3D()
 
                             drawer.path(path)
@@ -377,47 +394,72 @@ fun main() {
                     saveFileDialog(supportedExtensions = listOf("Raster images" to listOf("png"))) {
 
                         launch {
-                            val rt = renderTarget(
-                                warps * 10,
-                                wefts * 10,
-                                contentScale = 6.0
 
-                            ) {
-                                colorBuffer()
-                                depthBuffer()
-                            }
-                            val blendRt = renderTarget(rt.width, rt.height, contentScale = rt.contentScale) {
-                                colorBuffer(type = ColorType.FLOAT32)
-                            }
+                            val tileSize = 128
+                            val rows = ceil(wefts / 128.0).toInt()
+                            val cols = ceil(warps / 128.0).toInt()
 
-                            drawer.isolatedWithTarget(blendRt) {
-                                drawer.clear(ColorRGBa.BLACK)
-                            }
 
-                            for (j in -2..2)
-                                for (i in -2..2) {
-                                    drawer.isolatedWithTarget(rt) {
-                                        drawer.clear(weaveSettings.backgroundColor)
-                                        drawer.translate(i / 24.0, j / 24.0, 0.0, TransformTarget.VIEW)
-                                        drawer.ortho(rt)
-                                        drawWeave()
+                            for (row in 0 until rows) {
+                                for (col in 0 until cols) {
+                                    val rt = renderTarget(
+                                        tileSize * 10,
+                                        tileSize * 10,
+                                        contentScale = 12.0
+
+                                    ) {
+                                        colorBuffer()
+                                        depthBuffer()
                                     }
+                                    val blendRt = renderTarget(rt.width, rt.height, contentScale = rt.contentScale) {
+                                        colorBuffer(type = ColorType.FLOAT32)
+                                    }
+
                                     drawer.isolatedWithTarget(blendRt) {
-                                        drawer.drawStyle.blendMode = BlendMode.ADD
-                                        drawer.drawStyle.colorMatrix = tint(ColorRGBa.WHITE.shade(1 / (25.0)))
-
-                                        drawer.ortho(blendRt)
-                                        drawer.image(rt.colorBuffer(0))
+                                        drawer.clear(ColorRGBa.BLACK)
                                     }
 
+                                    for (j in -2..2)
+                                        for (i in -2..2) {
+                                            drawer.isolatedWithTarget(rt) {
+                                                drawer.clear(weaveSettings.backgroundColor)
+
+                                                val f = rt.contentScale * 4.0
+
+                                                drawer.translate(i / f, j / f, 0.0, TransformTarget.VIEW)
+                                                drawer.translate(-col * tileSize * 10.0, -row * tileSize * 10.0, 0.0, TransformTarget.VIEW)
+                                                drawer.ortho(rt)
+                                                drawWeave()
+                                            }
+                                            drawer.isolatedWithTarget(blendRt) {
+                                                drawer.drawStyle.blendMode = BlendMode.ADD
+                                                drawer.drawStyle.colorMatrix = tint(ColorRGBa.WHITE.shade(1 / (25.0)))
+
+                                                drawer.ortho(blendRt)
+                                                drawer.image(rt.colorBuffer(0))
+                                            }
+
+                                        }
+
+                                    val resolved = colorBuffer(rt.width, rt.height, contentScale = rt.contentScale)
+                                    blendRt.colorBuffer(0).copyTo(resolved)
+
+                                    val tileFile = File(
+                                        it.parentFile,
+                                        "${it.nameWithoutExtension}-${
+                                            String.format(
+                                                "%02d",
+                                                row
+                                            )
+                                        }-${String.format("%02d", col)}.png"
+                                    )
+                                    resolved.saveToFile(tileFile, async = false)
+                                    rt.destroy()
+                                    blendRt.destroy()
                                 }
 
-                            val resolved = colorBuffer(rt.width, rt.height, contentScale = rt.contentScale)
-                            blendRt.colorBuffer(0).copyTo(resolved)
-                            resolved.saveToFile(it)
-                            rt.destroy()
+                            }
                         }
-
 
                     }
 
@@ -436,7 +478,7 @@ fun main() {
                 drawer.fontMap = loadFont("data/fonts/Roboto-Regular.ttf", 48.0)
 
                 drawer.writer {
-                    box = drawer.bounds
+                    box = Rectangle.fromCenter(drawer.bounds.center, typeSettings.textWidth, drawer.bounds.height)
                     verticalAlign = 0.5
                     horizontalAlign = 0.5
                     text(typeSettings.text)
